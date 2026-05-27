@@ -6,6 +6,7 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import keras
 import urllib.request
+import re
 
 # --- THE MAGIC LINE: Force Keras to match the model's bfloat16 data type ---
 keras.mixed_precision.set_global_policy("mixed_bfloat16")
@@ -25,27 +26,43 @@ app.add_middleware(
 
 _skin_model = None
 
-# 🔗 PLACE YOUR CLOUD DOWNLOAD LINK HERE
-# For Google Drive: Use https://drive.google.com/uc?export=download&id=YOUR_FILE_ID
-# For Dropbox: Change the "dl=0" at the end of your link to "dl=1"
-MODEL_URL = "YOUR_DIRECT_DOWNLOAD_LINK_HERE"
-
 def load_model():
     global _skin_model
     if _skin_model is None:
-        # Determine paths
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         MODEL_PATH = os.path.join(BASE_DIR, "model.keras")
         
-        # 🛠️ THE WORKAROUND: If the heavy file isn't on Render, stream it from the cloud
+        # 🛠️ AUTOMATED WORKAROUND: Handle Google Drive's 2.5GB virus confirmation shield
         if not os.path.exists(MODEL_PATH):
-            print("Model weights not found locally. Streaming weights from cloud storage...")
-            if MODEL_URL == "YOUR_DIRECT_DOWNLOAD_LINK_HERE":
-                raise ValueError("Deployment Error: Please replace the MODEL_URL placeholder with your direct cloud link!")
+            print("Model weights not found locally. Initializing 2.5GB cloud stream from Google Drive...")
+            file_id = "1eR3KfGAlJzC8KCCyJ5EqW7sqXQB9gRMz"
+            base_url = "https://docs.google.com/uc?export=download"
+            url = f"{base_url}&id={file_id}"
             
-            # Programmatically fetch the binary structure
-            urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
-            print("Cloud weights downloaded successfully!")
+            try:
+                opener = urllib.request.build_opener()
+                opener.addheaders = [('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)')]
+                
+                with opener.open(url) as response:
+                    content = response.read()
+                
+                content_str = content.decode('utf-8', errors='ignore')
+                confirm_match = re.search(r'confirm=([0-9A-Za-z_-]+)', content_str)
+                
+                if confirm_match:
+                    token = confirm_match.group(1)
+                    print(f"Large file warning bypassed. Streaming 2.5GB weights with token: {token}")
+                    url = f"{base_url}&id={file_id}&confirm={token}"
+                    
+                    with opener.open(url) as response:
+                        content = response.read()
+                
+                with open(MODEL_PATH, 'wb') as f:
+                    f.write(content)
+                print("Cloud weights downloaded successfully!")
+                
+            except Exception as e:
+                raise RuntimeError(f"Automated Google Drive streaming sequence failed: {e}")
 
         print("Loading Model with your custom layers & mixed precision...")
         custom_objs = get_custom_objects()
